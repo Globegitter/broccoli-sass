@@ -1,5 +1,13 @@
 # master
 
+# 0.3.0
+
+* Upgrade to node-sass ^1.0.1
+
+# 0.2.4
+
+* Fix path handling issue
+
 # 0.2.3
 
 * Cache Sass output using broccoli-caching-writer
