@@ -5,7 +5,10 @@ var includePathSearcher = require('include-path-searcher')
 var CachingWriter = require('broccoli-caching-writer')
 var sass = require('node-sass')
 var _ = require('lodash')
-var Promise = require('rsvp').Promise
+var rsvp = require('rsvp')
+var Promise = rsvp.Promise
+var fs = require('fs')
+var writeFile = rsvp.denodeify(fs.writeFile)
 
 module.exports = SassCompiler
 SassCompiler.prototype = Object.create(CachingWriter.prototype)
@@ -21,39 +24,44 @@ function SassCompiler (inputTrees, inputFile, outputFile, options) {
   options = options || {}
   this.sassOptions = {
     imagePath: options.imagePath,
+    indentedSyntax: options.indentedSyntax,
+    omitSourceMapUrl: options.omitSourceMapUrl,
     outputStyle: options.outputStyle,
+    precision: options.precision,
     sourceComments: options.sourceComments,
     sourceMap: options.sourceMap,
-    precision: options.precision
+    sourceMapEmbed: options.sourceMapEmbed,
+    sourceMapContents: options.sourceMapContents
   }
 }
 
 SassCompiler.prototype.updateCache = function(includePaths, destDir) {
-  var self = this
-
   return new Promise(function(resolve, reject) {
-    var destFile = path.join(destDir, self.outputFile)
+    var destFile = path.join(destDir, this.outputFile)
+    var sourceMapFile = this.sassOptions.sourceMap
+    if (typeof sourceMapFile !== 'string') {
+      sourceMapFile = destFile + '.map'
+    }
     mkdirp.sync(path.dirname(destFile))
 
     var sassOptions = {
-      file: includePathSearcher.findFileSync(self.inputFile, includePaths),
+      file: includePathSearcher.findFileSync(this.inputFile, includePaths),
       includePaths: includePaths,
       outFile: destFile,
-      success: function() {
-        if (!isAbsolutePath(self.sassOptions.sourceMap)) {
-          // node-sass uses a relative path for sourceMappingURL that breaks
-          // when the file is moved from broccoli's temporary directory
-          self.fixSourceMappingURL(destFile);
+      success: function(result) {
+        var promises = [writeFile(destFile, result.css)]
+        if (this.sassOptions.sourceMap) {
+          promises.push(writeFile(sourceMapFile, JSON.stringify(result.map)))
         }
-        resolve()
-      },
+        resolve(Promise.all(promises))
+      }.bind(this),
       error: function(err) {
         reject(err)
       }
     }
-    _.merge(sassOptions, self.sassOptions)
-    sass.renderFile(sassOptions)
-  })
+    _.merge(sassOptions, this.sassOptions)
+    sass.render(sassOptions)
+  }.bind(this))
 }
 
 SassCompiler.prototype.fixSourceMappingURL = function(destFile) {
